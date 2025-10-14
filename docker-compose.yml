@@ -1,0 +1,30 @@
+
+services:
+  tv-webhook:
+    build: .
+    container_name: tv-webhook
+    restart: unless-stopped
+    environment:
+      PORT: "80"
+      WEBHOOK_PATH: "${WEBHOOK_PATH:-/webhook/7b9e3c76-32bf-4c8f-9f7a-6d3b7f1d1b9f}"
+      WEBHOOK_SECRET: "${WEBHOOK_SECRET}"
+      FRESHNESS_WINDOW_MS: "${FRESHNESS_WINDOW_MS:-90000}"
+    ports:
+      - "8080:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80${WEBHOOK_PATH:-/webhook/7b9e3c76-32bf-4c8f-9f7a-6d3b7f1d1b9f} || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ngrok-agent
+    restart: unless-stopped
+    environment:
+      NGROK_AUTHTOKEN: "${NGROK_AUTHTOKEN}"
+    command: ${NGROK_COMMAND:-http --region=eu --log=stdout tv-webhook:80}
+    ports:
+      - "4040:4040"  # ngrok inspector -> http://localhost:4040
+    depends_on:
+      - tv-webhook

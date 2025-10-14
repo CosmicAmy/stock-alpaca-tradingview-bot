@@ -1,33 +1,42 @@
-import express, {Express} from 'express';
-import { RequestHandler, ParamsDictionary } from 'express-serve-static-core';
-import { ParsedQs } from 'qs';
+import express, { Express, RequestHandler } from "express";
+import { ParamsDictionary } from "express-serve-static-core";
+import { ParsedQs } from "qs";
 
-export type HTTP_METHOD= 'get'|'post';
-//
-class Server{
+export type HTTP_METHOD = "get" | "post";
+
+class Server {
   private app: Express;
   constructor() {
     this.app = express();
-    this.app.use(express.json());
+    this.app.use(express.json({ limit: "64kb" }));
     this.app.use(express.urlencoded({ extended: false }));
   }
-  addEndpoint(endpoint: string, method: HTTP_METHOD, callback: RequestHandler<ParamsDictionary, any, any, ParsedQs, Record<string, any>>){
-    this.app[method](endpoint, callback);
+
+  // NEW: allow multiple handlers/middlewares
+  addEndpoint(
+    endpoint: string,
+    method: HTTP_METHOD,
+    ...callbacks: RequestHandler<ParamsDictionary, any, any, ParsedQs, Record<string, any>>[]
+  ) {
+    this.app[method](endpoint, ...callbacks);
   }
-  addWebhook(endpoint: string, callback: RequestHandler<ParamsDictionary, any, any, ParsedQs, Record<string, any>>){
-    this.addEndpoint(endpoint, 'post', callback);
+
+  addWebhook(
+    endpoint: string,
+    ...callbacks: RequestHandler<ParamsDictionary, any, any, ParsedQs, Record<string, any>>[]
+  ) {
+    this.addEndpoint(endpoint, "post", ...callbacks);
   }
-  async start(port: number){
+
+  async start(port: number) {
     return new Promise<void>((resolve, reject) => {
-      try{
-        this.app.listen(port, () => {
-          resolve();
-        });
-      }catch (e: any) {
+      try {
+        this.app.listen(port, () => resolve());
+      } catch (e: any) {
         reject(e.message);
       }
     });
   }
 }
 
-export const server= new Server();
+export const server = new Server();

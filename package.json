@@ -16,7 +16,9 @@
     "typescript": "^5.4.5",
     "@types/express": "^4.17.21",
     "ts-jest": "^29.1.2",
-    "jest": "^29.7.0"
+    "jest": "^29.7.0",
+    "@types/supertest": "^2.0.16",
+    "supertest": "^6.3.4"
   },
   "dependencies": {
     "@alpacahq/alpaca-trade-api": "^3.0.1",

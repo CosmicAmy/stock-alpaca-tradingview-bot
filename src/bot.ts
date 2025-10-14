@@ -6,6 +6,7 @@ import { orderManager } from "./lib/order_manager";
 import { Util } from "./lib/util";
 import { Account, OrderSide, OrderSides, OrderType, OrderTypes, Position, Signal } from "./lib/model";
 import Cron from "croner";
+import { verifyTradingView } from "./middleware/tradingViewAuth";
 
 
 async function processSignal(signal: Signal){
@@ -84,7 +85,7 @@ async function start(){
   Cron(config.tpSlCron, async () => {
     await protectPositions();
   });
-  server.addWebhook(config.endpoint, (req, res) => {
+  server.addWebhook(config.endpoint, verifyTradingView, (req, res) => {
     const signal= req.body;
     res.send('');
     res.end();
@@ -96,6 +97,7 @@ async function start(){
       logger.error(`Invalid signal. ${signalError}`);
     }
   });
+
 }
 
 
