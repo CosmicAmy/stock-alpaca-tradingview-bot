@@ -1,8 +1,9 @@
 import { alpaca } from './alpaca';
 import { logger } from './logger';
-import { BuyLimitOrder, BuyMarketOrder, BuyStopLimitOrder, BuyStopOrder, 
+import { BuyLimitOrder, BuyMarketOrder, BuyStopLimitOrder, BuyStopOrder,
   Order, SellLimitOrder, SellMarketOrder, SellOCOOrder, SellStopLimitOrder, SellStopOrder } from './order';
 import { OrderSettings, OrderType, Portfolio } from './model';
+import { describeError, wrapError } from './errorHelpers';
 
 
 const DEFAULT_PORTFOLIO= {};
@@ -118,18 +119,37 @@ class OrderManager{
     }
   }
   async cancelOrders(symbol: string){
-    const orders= await alpaca.getOpenOrders(symbol);
+    let orders;
+    try {
+      orders = await alpaca.getOpenOrders(symbol);
+    } catch (error) {
+      logger.error(`[${symbol}] Failed to retrieve open orders | ${describeError(error)}`);
+      return;
+    }
     if(orders.length===1){
       const order= orders[0];
       logger.info(`[${symbol}] Canceling open ${order.side} order`);
-      await alpaca.cancelOrder(order.id);
+      try {
+        await alpaca.cancelOrder(order.id);
+      } catch (error) {
+        logger.error(
+          `[${symbol}] Failed to cancel order ${order.id} | ${describeError(error)}`
+        );
+      }
     }else if(orders.length>1){
       logger.crit(`[${symbol}] Found ${orders.length} open orders !!`);
     }
   }
   async executeOrder(order:Order){
     const client_order_id= this.generateClientOrderId(order.symbol);
-    return await alpaca.createOrder({...order.toAlpacaOrder(), client_order_id});
+    try {
+      return await alpaca.createOrder({ ...order.toAlpacaOrder(), client_order_id });
+    } catch (error) {
+      const wrapped = wrapError(`submit order ${client_order_id}`, error);
+      (wrapped as any).__logged = true;
+      logger.error(`[${order.symbol}] ${describeError(wrapped)}`);
+      throw wrapped;
+    }
   }
 }
 

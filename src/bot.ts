@@ -1,9 +1,11 @@
+import "./env";
 import { server } from "./lib/server";
 import { alpaca } from "./lib/alpaca";
 import config from '../config.json';
 import { logger } from "./lib/logger";
 import { orderManager } from "./lib/order_manager";
 import { Util } from "./lib/util";
+import { describeError } from "./lib/errorHelpers";
 import { Account, OrderSide, OrderSides, OrderType, OrderTypes, Position, Signal } from "./lib/model";
 import Cron from "croner";
 import { verifyTradingView } from "./middleware/tradingViewAuth";
@@ -21,7 +23,7 @@ async function processSignal(signal: Signal){
     account = await alpaca.getAccount();
     positions = await alpaca.getPositions();
   }catch(e){
-    logger.error(`Error loading account and positions : ${e}`);
+    logger.error(`Failed to load account and positions | ${describeError(e)}`);
     return;
   }
   let capital= account.cash;
@@ -60,13 +62,28 @@ async function processSignal(signal: Signal){
     .filter(result => result.status !== 'fulfilled')
     .forEach((result, index) => {
       const failedResult = result as PromiseRejectedResult;
-      logger.error(`[${tradableSymbols[index]}] ${failedResult.reason.message}`);
+      if ((failedResult.reason as any)?.__logged) {
+        return;
+      }
+      logger.error(`[${tradableSymbols[index]}] Order execution failed | ${describeError(failedResult.reason)}`);
     });
 }
 async function protectPositions(){
-  const positions= (await alpaca.getPositions()).filter(p => config.portfolio[p.symbol]);
+  let positions: Position[];
+  try{
+    positions = (await alpaca.getPositions()).filter(p => config.portfolio[p.symbol]);
+  }catch(error){
+    logger.error(`protectPositions failed to load positions | ${describeError(error)}`);
+    return;
+  }
   for(const position of positions){
-    const orders= await alpaca.getOpenOrders(position.symbol);
+    let orders;
+    try{
+      orders = await alpaca.getOpenOrders(position.symbol);
+    }catch(error){
+      logger.error(`[${position.symbol}] Failed to load open orders | ${describeError(error)}`);
+      continue;
+    }
     if(orders.length===0 || orders.find(order => order.side==='sell')===undefined){
       const order = orderManager.generateSellOrder(OrderTypes.OCO, position.symbol, position.entryPrice, position.qty);
       if (order) {

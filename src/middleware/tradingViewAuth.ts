@@ -23,8 +23,24 @@ export const verifyTradingView: RequestHandler = (req, res, next) => {
       return res.status(401).json({ ok: false });
     }
 
-    const t = String(req.body?.time ?? "");
-    const ts = Date.parse(t);
+    const rawTime = req.body?.time;
+    const ts = (() => {
+      if (typeof rawTime === "number" && Number.isFinite(rawTime)) {
+        return rawTime > 1e12 ? rawTime : rawTime * 1000;
+      }
+      if (typeof rawTime === "string") {
+        const trimmed = rawTime.trim();
+        if (/^\d+$/.test(trimmed)) {
+          const asNumber = Number(trimmed);
+          if (Number.isFinite(asNumber)) {
+            return trimmed.length > 10 ? asNumber : asNumber * 1000;
+          }
+        }
+        const parsed = Date.parse(trimmed);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      return Number.NaN;
+    })();
     if (!Number.isFinite(ts)) {
       return res.status(400).json({ ok: false, error: "invalid time" });
     }
