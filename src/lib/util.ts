@@ -1,6 +1,13 @@
 import { OrderSide, OrderSides, OrderTypes, Position } from "./model";
 
 export const Util= {
+  normalizeSymbol: (rawSymbol: string): string => {
+    const trimmed = rawSymbol.trim();
+    const withoutPrefix = trimmed.includes(":")
+      ? trimmed.slice(trimmed.lastIndexOf(":") + 1)
+      : trimmed;
+    return withoutPrefix.trim().toUpperCase();
+  },
   executePromises: async (promises: Promise<any>[]) => {
     return await Promise.allSettled(promises);
   },
@@ -14,11 +21,8 @@ export const Util= {
     if (side !== OrderSides.BUY && side !== OrderSides.SELL) {
       return [false, `Invalid value for side : ${side}`];
     }
-    if (!(Object.keys(OrderTypes).map(t => OrderTypes[t]).includes(type))) {
-      return [false, `Invalid value for type : ${type}`];
-    }
-    if (type !== OrderTypes.MARKET && !prices) {
-      return [false, 'Missing parameter : prices'];
+    if (type !== OrderTypes.MARKET) {
+      return [false, `Unsupported order type : ${type}. Only market orders are allowed.`];
     }
     if (prices && symbols.length !== prices.length) {
       return [false, 'Arrays must have the same length : symbols and prices'];

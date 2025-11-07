@@ -1,6 +1,5 @@
 import path from "path"
 import winston from "winston"
-import { syslog } from "winston/lib/winston/config/index"
 
 type LoggerOptions= {
   level: string
@@ -17,6 +16,9 @@ const DEFAULT_OPTIONS: LoggerOptions= {
   rootPath: '.',
   fileName: 'application.log'
 }
+
+const SYSLOG_LEVELS = winston.config.syslog.levels;
+
 class Logger{
   private _logger: winston.Logger;
   private level: string;
@@ -40,7 +42,7 @@ class Logger{
     }
     this._logger = winston.createLogger({
       level: this.level,
-      levels: syslog.levels,
+      levels: SYSLOG_LEVELS,
       format: winston.format.combine(
         winston.format.align(),
         winston.format.timestamp(),
@@ -66,7 +68,7 @@ class Logger{
     this._logger.log('error', message);
   }
   warn(message: string){
-    this._logger.log('warn', message);
+    this._logger.log('warning', message);
   }
   crit(message: string){
     this._logger.log('crit', message);

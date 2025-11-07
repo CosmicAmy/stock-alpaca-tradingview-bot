@@ -1,8 +1,14 @@
 import { alpaca } from './alpaca';
 import { logger } from './logger';
-import { BuyLimitOrder, BuyMarketOrder, BuyStopLimitOrder, BuyStopOrder,
-  Order, SellLimitOrder, SellMarketOrder, SellOCOOrder, SellStopLimitOrder, SellStopOrder } from './order';
-import { OrderSettings, OrderType, Portfolio } from './model';
+import {
+  BuyMarketOrder,
+  Order,
+  SellLimitOrder,
+  SellMarketOrder,
+  SellOCOOrder,
+  SellStopOrder
+} from './order';
+import { OrderSettings, OrderType, OrderTypes, Portfolio } from './model';
 import { describeError, wrapError } from './errorHelpers';
 
 
@@ -23,8 +29,27 @@ class OrderManager{
   constructor(private portfolio: Portfolio, private defaults: OrderSettings){
   }
   private calculateOrderQty(symbol: string, price: number, capital: number){
-    const allocation= this.portfolio[symbol].allocation||this.defaults.allocation;
-    return Math.round((capital*allocation/100)/price);
+    const settings = this.portfolio[symbol] || {};
+    const allocation = settings.allocation ?? this.defaults.allocation;
+    const numericPrice = Number(price);
+    if(!Number.isFinite(numericPrice) || numericPrice<=0){
+      logger.warn(`[${symbol}] Invalid price "${price}" for sizing; skipping order.`);
+      return 0;
+    }
+    const rawQty = (capital*allocation/100)/numericPrice;
+    if(!Number.isFinite(rawQty)){
+      logger.warn(`[${symbol}] Computed quantity ${rawQty} is not finite; skipping order.`);
+      return 0;
+    }
+    if (rawQty <= 0) {
+      logger.warn(`[${symbol}] Computed order quantity is not positive (${rawQty}); skipping order.`);
+      return 0;
+    }
+    const qty = Math.max(1, Math.round(rawQty));
+    if (qty === 1 && rawQty < 1) {
+      logger.info(`[${symbol}] Computed allocation resulted in <1 share; defaulting to 1 share.`);
+    }
+    return qty;
   }
   private generateClientOrderId(symbol: string){
     return `${symbol}_FF_${Date.now()}`;
@@ -32,39 +57,50 @@ class OrderManager{
   private roundPrice(price: number){
     return Number(Number(price).toFixed(2));
   }
+  private getSymbolConfig(symbol: string){
+    return this.portfolio[symbol] || {};
+  }
   private calculateEntryLimitPrice(symbol:string, currentPrice:number){
-    const entryOffset= this.portfolio[symbol].entryLimitOffset||this.defaults.entryLimitOffset;
+    const symbolConfig = this.getSymbolConfig(symbol);
+    const entryOffset= symbolConfig.entryLimitOffset ?? this.defaults.entryLimitOffset;
     return this.roundPrice(currentPrice*(1-entryOffset/100));
   }
   private calculateExitLimitPrice(symbol: string, currentPrice: number){
-    const exitOffset= this.portfolio[symbol].exitLimitOffset||this.defaults.exitLimitOffset;
+    const symbolConfig = this.getSymbolConfig(symbol);
+    const exitOffset= symbolConfig.exitLimitOffset ?? this.defaults.exitLimitOffset;
     return this.roundPrice(currentPrice*(1+exitOffset/100));
   }
   private calculateEntryStopPrice(symbol:string, currentPrice:number){
-    const entryOffset= this.portfolio[symbol].entryStopOffset||this.defaults.entryStopOffset;
+    const symbolConfig = this.getSymbolConfig(symbol);
+    const entryOffset= symbolConfig.entryStopOffset ?? this.defaults.entryStopOffset;
     return this.roundPrice(currentPrice*(1+entryOffset/100));
   }
   private calculateExitStopPrice(symbol: string, currentPrice: number){
-    const exitOffset= this.portfolio[symbol].exitStopOffset||this.defaults.exitStopOffset;
+    const symbolConfig = this.getSymbolConfig(symbol);
+    const exitOffset= symbolConfig.exitStopOffset ?? this.defaults.exitStopOffset;
     return this.roundPrice(currentPrice*(1-exitOffset/100));
   }
   private calculateEntryStopLimitPrice(symbol:string, stopPrice:number){
-    const entryOffset= this.portfolio[symbol].entryStopLimitOffset||this.defaults.entryStopLimitOffset;
+    const symbolConfig = this.getSymbolConfig(symbol);
+    const entryOffset= symbolConfig.entryStopLimitOffset ?? this.defaults.entryStopLimitOffset;
     return this.roundPrice(stopPrice*(1-entryOffset/100));
   }
   private calculateExitStopLimitPrice(symbol: string, stopPrice: number){
-    const exitOffset= this.portfolio[symbol].exitStopLimitOffset||this.defaults.exitStopLimitOffset;
+    const symbolConfig = this.getSymbolConfig(symbol);
+    const exitOffset= symbolConfig.exitStopLimitOffset ?? this.defaults.exitStopLimitOffset;
     return this.roundPrice(stopPrice*(1+exitOffset/100));
   }
   private calculateTakeProfitPrice(symbol:string, entryPrice:number){
-    const takeProfitOffset= this.portfolio[symbol].takeProfit||this.defaults.takeProfit||0;
+    const symbolConfig = this.getSymbolConfig(symbol);
+    const takeProfitOffset= symbolConfig.takeProfit ?? this.defaults.takeProfit ?? 0;
     if(takeProfitOffset===0){
       return 0;
     }
     return this.roundPrice(entryPrice*(1+takeProfitOffset/100));
   }
   private calculateStopLossPrice(symbol: string, currentPrice: number){
-    const stopLossOffset= this.portfolio[symbol].stopLoss||this.defaults.stopLoss||0;
+    const symbolConfig = this.getSymbolConfig(symbol);
+    const stopLossOffset= symbolConfig.stopLoss ?? this.defaults.stopLoss ?? 0;
     if(stopLossOffset===0){
       return 0;
     }
@@ -75,48 +111,42 @@ class OrderManager{
     this.defaults= defaults;
   }
   generateBuyOrder(type: OrderType, symbol: string, price: number, capital: number): Order|undefined {
-    let limitPrice=0, stopPrice=0, stopLimitPrice= 0;
-    switch(type){
-      case 'market':
-        return new BuyMarketOrder(symbol, this.calculateOrderQty(symbol, price, capital));
-      case 'limit':
-        limitPrice= this.calculateEntryLimitPrice(symbol, price);
-        return new BuyLimitOrder(symbol, this.calculateOrderQty(symbol, limitPrice, capital), limitPrice);
-      case 'stop':
-        stopPrice= this.calculateEntryStopPrice(symbol, price);
-        return new BuyStopOrder(symbol, this.calculateOrderQty(symbol, stopPrice, capital), stopPrice);
-      case 'stop_limit':
-        stopPrice= this.calculateEntryStopPrice(symbol, price);
-        stopLimitPrice= this.calculateEntryStopLimitPrice(symbol, stopPrice);
-        return new BuyStopLimitOrder(symbol, this.calculateOrderQty(symbol, stopLimitPrice, capital), stopLimitPrice, stopPrice);
+    if (type !== OrderTypes.MARKET){
+      logger.warn(`[${symbol}] Unsupported buy order type "${type}". Only market orders are submitted.`);
+      return undefined;
     }
+    const qty = this.calculateOrderQty(symbol, price, capital);
+    return qty>0 ? new BuyMarketOrder(symbol, qty) : undefined;
   }
   generateSellOrder(type: OrderType, symbol: string, price: number, qty: number): Order|undefined {
-    let limitPrice=0, stopPrice=0, stopLimitPrice= 0;
-    switch(type){
-      case 'market':
-        return new SellMarketOrder(symbol, qty);
-      case 'limit':
-        limitPrice= this.calculateExitLimitPrice(symbol, price);
-        return new SellLimitOrder(symbol, qty, limitPrice);
-      case 'stop':
-        stopPrice= this.calculateExitStopPrice(symbol, price);
-        return new SellStopOrder(symbol, qty, stopPrice);
-      case 'stop_limit':
-        stopPrice= this.calculateExitStopPrice(symbol, price);
-        stopLimitPrice= this.calculateExitStopLimitPrice(symbol, stopPrice);
-        return new SellStopLimitOrder(symbol, qty, stopLimitPrice, stopPrice);
-      case 'oco':
-        const takeProfitPrice= this.calculateTakeProfitPrice(symbol, price);
-        const stopLossPrice= this.calculateStopLossPrice(symbol, price);
-        if(takeProfitPrice>0 && stopLossPrice===0){
-          return new SellLimitOrder(symbol, qty, takeProfitPrice);
-        }else if(takeProfitPrice===0){
-          return new SellStopOrder(symbol, qty, stopLossPrice);
-        }else{
-          return new SellOCOOrder(symbol, qty, takeProfitPrice, stopLossPrice);
-        }
+    if (type !== OrderTypes.MARKET){
+      logger.warn(`[${symbol}] Unsupported sell order type "${type}". Only market orders are submitted.`);
+      return undefined;
     }
+    return new SellMarketOrder(symbol, qty);
+  }
+  generateProtectiveOrder(symbol: string, entryPrice: number, qty: number): Order | undefined {
+    const takeProfitPrice = this.calculateTakeProfitPrice(symbol, entryPrice);
+    const stopLossPrice = this.calculateStopLossPrice(symbol, entryPrice);
+
+    if (takeProfitPrice === 0 && stopLossPrice === 0) {
+      logger.debug(`[${symbol}] No take-profit/stop-loss configured; skipping protective order.`);
+      return undefined;
+    }
+
+    if (takeProfitPrice > 0 && stopLossPrice > 0) {
+      return new SellOCOOrder(symbol, qty, takeProfitPrice, stopLossPrice);
+    }
+
+    if (takeProfitPrice > 0) {
+      return new SellLimitOrder(symbol, qty, takeProfitPrice);
+    }
+
+    if (stopLossPrice > 0) {
+      return new SellStopOrder(symbol, qty, stopLossPrice);
+    }
+
+    return undefined;
   }
   async cancelOrders(symbol: string){
     let orders;

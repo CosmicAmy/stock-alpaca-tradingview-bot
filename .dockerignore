@@ -1,0 +1,10 @@
+.env
+node_modules
+coverage
+Dockerfile
+docker-compose.yml
+.git
+.gitignore
+tsconfig.tsbuildinfo
+*.log
+**/*.test.ts

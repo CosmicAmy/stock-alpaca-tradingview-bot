@@ -1,6 +1,7 @@
 import _Alpaca from '@alpacahq/alpaca-trade-api';
 import { Account, AlpacaConfig, AlpacaOrder, Position } from './model';
 import { logger } from './logger';
+import { describeError } from './errorHelpers';
 
 
 class Alpaca{
@@ -27,6 +28,25 @@ class Alpaca{
   }
   async getAccount(): Promise<Account>{
       return new Account(await this._alpaca.getAccount());
+  }
+  async getLatestPrice(symbol: string): Promise<number | undefined> {
+    try{
+      const trade = await this._alpaca.getLatestTrade(symbol);
+      const price =
+        (trade as any)?.Price ??
+        (trade as any)?.price ??
+        (trade as any)?.p ??
+        (trade as any)?.trade?.Price;
+      const normalized = typeof price === "string" ? Number(price) : Number(price);
+      if (Number.isFinite(normalized) && normalized > 0){
+        return normalized;
+      }
+      logger.warn(`[${symbol}] Received invalid latest trade price: ${price}`);
+      return undefined;
+    }catch(error){
+      logger.error(`[${symbol}] Failed to fetch latest trade price | ${describeError(error)}`);
+      return undefined;
+    }
   }
 }
 

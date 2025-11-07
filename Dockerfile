@@ -6,16 +6,21 @@ RUN apk add --no-cache curl
 
 WORKDIR /app
 
-# Install deps (use package*.json if you have lockfile)
+# Install dependencies first to leverage Docker layer caching
 COPY package*.json ./
-RUN npm ci --omit=dev || npm install --omit=dev
+RUN npm ci
 
-# Copy the rest of your app
+# Copy the source code
 COPY . .
+
+# Build the TypeScript sources inside the image
+RUN npm run build
+
+# Strip dev dependencies after build to keep image lean
+RUN npm prune --production
 
 # These match your compose envs
 ENV PORT=80
 EXPOSE 80
 
-# If your entry is "node server.js", keep this; otherwise adjust (e.g., "node dist/index.js")
 CMD ["node", "dist/bot.js"]

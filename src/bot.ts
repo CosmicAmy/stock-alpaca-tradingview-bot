@@ -13,10 +13,11 @@ import { verifyTradingView } from "./middleware/tradingViewAuth";
 
 async function processSignal(signal: Signal){
   const {symbols, side, type}= signal;
-  let prices= signal.prices;
-  if(!prices){
-    prices= symbols.map(_=>0);
+  if (type !== OrderTypes.MARKET) {
+    logger.warn(`Signal ignored: unsupported order type "${type}". Only market orders are executed.`);
+    return;
   }
+  const inputPrices = signal.prices ?? [];
   let account: Account;
   let positions: Position[]= [];
   try{
@@ -30,28 +31,54 @@ async function processSignal(signal: Signal){
   positions
     //.filter(position => config.portfolio[position.symbol])
     .forEach(position => capital += position.cost);
-  const tradableSymbols: string[]= [];
-  let tradableSymbolPrices: number[]= [];
-  for(let i= 0; i<symbols.length; i++){
-    const symbol= symbols[i];
+  const tradableEntries: {
+    rawSymbol: string;
+    symbol: string;
+    price: number;
+    position?: Position;
+  }[] = [];
+  for (const [index, rawSymbol] of symbols.entries()){
+    const symbol = Util.normalizeSymbol(rawSymbol);
     const position= positions.find(p => p.symbol===symbol);
     const [shouldIgnoreSignal, shouldIgnoreReason]= Util.shouldIgnoreSignal(side, position, config.portfolio[symbol]);
     if(shouldIgnoreSignal){
-      logger.info(`[${symbol}] ${shouldIgnoreReason as string}`);
+      logger.info(`[${rawSymbol}] ${shouldIgnoreReason as string}`);
       continue;
     }
-    tradableSymbols.push(symbol);
-    tradableSymbolPrices.push(prices[i]);
+    let price: number | undefined = inputPrices[index];
+    if (price === undefined || price === null) {
+      if (type === OrderTypes.MARKET) {
+        price = await alpaca.getLatestPrice(symbol);
+      } else if (position) {
+        price = Number(position.entryPrice);
+      }
+    }
+    if (typeof price === "string") {
+      price = Number(price);
+    }
+    if (price === undefined || !Number.isFinite(price) || price <= 0) {
+      if (type === OrderTypes.MARKET) {
+        price = await alpaca.getLatestPrice(symbol);
+      }
+    }
+    if (price === undefined || !Number.isFinite(price) || price <= 0) {
+      logger.error(`[${rawSymbol}] Unable to determine price for order; skipping signal`);
+      continue;
+    }
+    tradableEntries.push({ rawSymbol, symbol, price, position });
   }
-  const results = await Util.executePromises(tradableSymbols.map(
-    async (symbol, index) => {
+  const results = await Util.executePromises(tradableEntries.map(
+    async ({ rawSymbol, symbol, price, position }) => {
       await orderManager.cancelOrders(symbol);
       let order;
       if (side === OrderSides.BUY) {
-        order = orderManager.generateBuyOrder(type, symbol, tradableSymbolPrices[index], capital);
+        order = orderManager.generateBuyOrder(type, symbol, price, capital);
       } else {
-        const position = positions.find(position => position.symbol === symbol) as Position;
-        order = orderManager.generateSellOrder(type, symbol, tradableSymbolPrices[index], position.qty);
+        if (!position) {
+          logger.warn(`[${rawSymbol}] Sell signal ignored after validation; position not found`);
+          return;
+        }
+        order = orderManager.generateSellOrder(type, symbol, price, position.qty);
       }
       if (order) {
         await orderManager.executeOrder(order);
@@ -65,7 +92,8 @@ async function processSignal(signal: Signal){
       if ((failedResult.reason as any)?.__logged) {
         return;
       }
-      logger.error(`[${tradableSymbols[index]}] Order execution failed | ${describeError(failedResult.reason)}`);
+      const { rawSymbol } = tradableEntries[index];
+      logger.error(`[${rawSymbol}] Order execution failed | ${describeError(failedResult.reason)}`);
     });
 }
 async function protectPositions(){
@@ -85,9 +113,9 @@ async function protectPositions(){
       continue;
     }
     if(orders.length===0 || orders.find(order => order.side==='sell')===undefined){
-      const order = orderManager.generateSellOrder(OrderTypes.OCO, position.symbol, position.entryPrice, position.qty);
-      if (order) {
-        await orderManager.executeOrder(order);
+      const protectiveOrder = orderManager.generateProtectiveOrder(position.symbol, position.entryPrice, position.qty);
+      if (protectiveOrder) {
+        await orderManager.executeOrder(protectiveOrder);
       }
     }
   }
