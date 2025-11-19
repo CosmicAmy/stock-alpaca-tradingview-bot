@@ -88,7 +88,7 @@ docker-compose up --build -d
 ```
 - `enableProtectiveOrders` is `false` by default; set it to `true` if you want the cron job to create take-profit/stop-loss orders.
 - `defaults` apply to every symbol, even if it is not declared under `portfolio`.
-- Use the `portfolio` section only when you need per-symbol overrides or want to set `active: false` to block a ticker entirely.
+- Use the `portfolio` section whenever you want *anything* beyond the defaults, including protective orders. The TP/SL cron only considers positions whose symbols exist in this map, so list every ticker that should get a protective order (you can still inherit defaults by omitting overrides).
 - All offsets are percentages (positive or negative) relative to the signal price; negative values let you chase best bid/ask inside the spread.
 
 ### Environment variables
@@ -192,6 +192,7 @@ When both `enableProtectiveOrders` is `true` and `tpSlCron` fires, open position
 
 Take-profit and stop-loss orders are *not* placed with the entry order. Instead, when `enableProtectiveOrders` is set to `true`, the cron job (`tpSlCron`) periodically checks open positions and submits the protective orders that are missing.
 
+- The cron explicitly filters Alpaca positions against the `portfolio` map. Any live position whose symbol is missing from `portfolio` will be ignored, even if `defaults.takeProfit`/`stopLoss` are non-zero. Add every symbol you want protected to the portfolio section (you can keep allocation/offsets at their default values there).
 - `takeProfit`/`stopLoss` are percentages relative to the entry price:  
   ```
   takeProfitPrice = entryPrice * (1 + takeProfit / 100)
