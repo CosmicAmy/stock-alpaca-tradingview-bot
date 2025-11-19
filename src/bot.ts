@@ -127,9 +127,13 @@ async function start(){
   await server.start(config.port);
   alpaca.configure(config.account);
   orderManager.configure(config.portfolio, config.defaults);
-  Cron(config.tpSlCron, async () => {
-    await protectPositions();
-  });
+  if (config.enableProtectiveOrders) {
+    Cron(config.tpSlCron, async () => {
+      await protectPositions();
+    });
+  } else {
+    logger.info('Protective orders disabled; skipping scheduled TP/SL checks.');
+  }
   server.addWebhook(config.endpoint, verifyTradingView, (req, res) => {
     const signal= req.body;
     res.send('');

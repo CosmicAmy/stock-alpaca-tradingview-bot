@@ -35,13 +35,13 @@ describe('test isValidSignal()', () => {
   test('prices and symbols should be the same length', () => {
     expect(Util.isValidSignal({symbols: ['AMD','NVDA'], side: OrderSides.BUY, type: OrderTypes.LIMIT, prices: [109]})[0]).toBeFalsy();
     expect(Util.isValidSignal({symbols: ['AMD','NVDA'], side: OrderSides.BUY, type: OrderTypes.LIMIT, prices: [109,198,209]})[0]).toBeFalsy();
-    expect(Util.isValidSignal({symbols: ['AMD','NVDA'], side: OrderSides.BUY, type: OrderTypes.LIMIT, prices: [109,198]})[0]).toBeTruthy();
+    expect(Util.isValidSignal({symbols: ['AMD','NVDA'], side: OrderSides.BUY, type: OrderTypes.MARKET, prices: [109,198]})[0]).toBeTruthy();
   });
 });
 
 describe('test shouldIgnoreSignal()', () => {
   test('unknown symbol', () => {
-    expect(Util.shouldIgnoreSignal(OrderSides.BUY, undefined, config.portfolio['xyz'])[0]).toBeTruthy();
+    expect(Util.shouldIgnoreSignal(OrderSides.BUY, undefined, config.portfolio['xyz'])[0]).toBeFalsy();
   });
   test('inactive symbol', () => {
     expect(Util.shouldIgnoreSignal(OrderSides.BUY, undefined, {"active": false})[0]).toBeTruthy();

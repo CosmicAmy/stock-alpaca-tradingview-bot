@@ -61,6 +61,7 @@ docker-compose up --build -d
   "port": 80,                          // HTTP port to listen on (needs to be 80 for TradingView by default)
   "endpoint": "/tradingview-webhook",  // Webhook path used in your TradingView alert
   "tpSlCron": "*/5 * * * *",           // Cron expression for creating take-profit / stop-loss orders
+  "enableProtectiveOrders": false,     // Only run the TP/SL cron when true
   "account": {
     "paper": true,
     "keyId": "your-alpaca-key",
@@ -85,8 +86,9 @@ docker-compose up --build -d
   }
 }
 ```
-- `defaults` apply to every symbol unless overridden under `portfolio`.
-- Set `active: false` on any ticker you want the bot to ignore even if TradingView emits it.
+- `enableProtectiveOrders` is `false` by default; set it to `true` if you want the cron job to create take-profit/stop-loss orders.
+- `defaults` apply to every symbol, even if it is not declared under `portfolio`.
+- Use the `portfolio` section only when you need per-symbol overrides or want to set `active: false` to block a ticker entirely.
 - All offsets are percentages (positive or negative) relative to the signal price; negative values let you chase best bid/ask inside the spread.
 
 ### Environment variables
@@ -179,16 +181,16 @@ Signals describe *what* to trade; the bot decides *if* it can trade the symbol (
 ## How orders flow
 1. The HTTP server accepts the webhook, validates the secret/timestamp, and enqueues the signal.
 2. The bot fetches your Alpaca account + positions, derives current capital (cash + cost basis), and normalizes symbols (for example stripping exchanges).
-3. Each symbol is checked against the `portfolio` section. If it is inactive, lacks allocation, or violates buy/sell rules, it is skipped.
+3. Each symbol inherits the `defaults` config. If a `portfolio` override marks it inactive or the position state violates buy/sell rules (buy with an open position, sell without one), it is skipped.
 4. For BUY signals, the bot computes a quantity from capital × allocation; for SELL signals it uses the open position quantity.
 5. Offsets from `defaults` or per-symbol overrides are applied to determine limit/stop/stop-limit prices.
 6. Orders are submitted via the Alpaca SDK. Failed executions are logged per symbol.
 
-When `tpSlCron` fires, open positions without an existing protective order cause the bot to issue the configured take-profit/stop-loss orders.
+When both `enableProtectiveOrders` is `true` and `tpSlCron` fires, open positions without an existing protective order cause the bot to issue the configured take-profit/stop-loss orders.
 
 ## Take profit & stop loss logic
 
-Take-profit and stop-loss orders are *not* placed with the entry order. Instead, the cron job (`tpSlCron`) periodically checks open positions and submits the protective orders that are missing.
+Take-profit and stop-loss orders are *not* placed with the entry order. Instead, when `enableProtectiveOrders` is set to `true`, the cron job (`tpSlCron`) periodically checks open positions and submits the protective orders that are missing.
 
 - `takeProfit`/`stopLoss` are percentages relative to the entry price:  
   ```
@@ -196,7 +198,7 @@ Take-profit and stop-loss orders are *not* placed with the entry order. Instead,
   stopLossPrice   = entryPrice * (1 - stopLoss / 100)
   ```
 - If only one of the two values is non-zero, a single `limit` or `stop` order is placed; if both are non-zero the bot creates an Alpaca OCO order.
-- Set both values to zero to disable protective orders for that symbol.
+- Set both values to zero (or leave `enableProtectiveOrders` as `false`) to disable protective orders for that symbol (or altogether).
 
 ## Extended hours & time in force
 

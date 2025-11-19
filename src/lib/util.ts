@@ -29,11 +29,9 @@ export const Util= {
     }
     return [true];
   },
-  shouldIgnoreSignal: (side: OrderSide, position: Position | undefined, symbolConfig: any) : [boolean, string?] => {
-    if (!symbolConfig) {
-      return [true, `Signal ignored, unknown symbol`];
-    }
-    if (symbolConfig.active === false) {
+  shouldIgnoreSignal: (side: OrderSide, position: Position | undefined, symbolConfig?: any) : [boolean, string?] => {
+    const normalizedConfig = symbolConfig ?? {};
+    if (normalizedConfig.active === false) {
       return [true, `Signal ignored, symbol is not active`];
     }
     if (side === 'buy' && position) {
